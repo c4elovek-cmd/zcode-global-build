@@ -21,6 +21,7 @@ LOG_PATH = os.path.join(HERE, "claim.log")
 STATE_PATH = os.path.join(HERE, "state.json")
 
 BALANCE_URL = "https://zcode.z.ai/api/v1/zcode-plan/billing/balance?app_version=3.16.3&platform=win32-x64"
+CURRENT_URL = "https://zcode.z.ai/api/v1/zcode-plan/billing/current"
 # Порог остатка токенов: ниже него план считается исчерпанным.
 THRESHOLD_UNITS = 0
 TASK_NAME = "ZCode-Limit-Watchdog"
@@ -129,26 +130,45 @@ def claim_plan(headers, plan_id):
 
 
 def read_balance(headers=None):
-    """Остаток токенов ZCode. None — если API/сеть недоступны (баланс неизвестен)."""
+    """Остаток токенов ZCode.
+    Возвращает dict {remaining, total, expires_at} или None (сеть/API сломаны —
+    состояние неизвестно). Когда активных планов нет, /billing/balance отвечает
+    400 parameter error, поэтому в этом случае смотрим /billing/current:
+      - планов нет  → remaining=0 (лимиты исчерпаны — план истёк);
+      - план есть, но balance недоступен → remaining=-1 (неизвестно, не выключать).
+    """
     if headers is None:
         cfg = load_config()
         headers = build_headers(cfg["jwt"], cfg.get("api_key", ""), cfg.get("device_mid", ""))
     st, data = request(BALANCE_URL, headers)
-    if st != 200 or data.get("code") not in (0, None):
+    if st == 200 and data.get("code") in (0, None):
+        balances = (data.get("data") or {}).get("balances") or []
+        return {
+            "remaining": sum(int(b.get("remaining_units") or 0) for b in balances),
+            "total": sum(int(b.get("total_units") or 0) for b in balances),
+            "expires_at": max((int(b.get("expires_at") or 0) for b in balances), default=0),
+        }
+
+    # balance недоступен — смотрим, есть ли вообще активный план
+    st2, data2 = request(CURRENT_URL, headers)
+    ok2 = st2 == 200 and data2.get("code") in (0, None)
+    if not ok2:
         return None
-    balances = (data.get("data") or {}).get("balances") or []
+    cur = (data2.get("data") or {}).get("plans") or []
+    if not cur:
+        return {"remaining": 0, "total": 0, "expires_at": 0}
     return {
-        "remaining": sum(int(b.get("remaining_units") or 0) for b in balances),
-        "total": sum(int(b.get("total_units") or 0) for b in balances),
-        "expires_at": max((int(b.get("expires_at") or 0) for b in balances), default=0),
+        "remaining": -1,
+        "total": 0,
+        "expires_at": max((int(p.get("ends_at") or 0) for p in cur), default=0),
     }
 
 
-def task_state():
+def task_state(name=TASK_NAME):
     """Состояние задачи планировщика: 'Ready'/'Running'/'Disabled' или None, если её нет."""
     r = subprocess.run(
         ["pwsh", "-NoProfile", "-Command",
-         f"(Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue).State"],
+         f"(Get-ScheduledTask -TaskName '{name}' -ErrorAction SilentlyContinue).State"],
         capture_output=True, text=True,
     )
     s = (r.stdout or "").strip()
