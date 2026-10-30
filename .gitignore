@@ -1,0 +1,8 @@
+# Секреты и персональные данные — никогда не публиковать
+config.json
+*.log
+state.json
+watchdog_state.json
+claim.state.json
+__pycache__/
+*.pyc
