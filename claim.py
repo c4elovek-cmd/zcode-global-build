@@ -169,7 +169,7 @@ def task_state(name=TASK_NAME):
     r = subprocess.run(
         ["pwsh", "-NoProfile", "-Command",
          f"(Get-ScheduledTask -TaskName '{name}' -ErrorAction SilentlyContinue).State"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, errors="replace",
     )
     s = (r.stdout or "").strip()
     return s or None
@@ -220,7 +220,7 @@ def reschedule_watchdog(ends_at=None):
         "Register-ScheduledTask -TaskName '" + TASK_NAME + "' -Action $act -Trigger $t -Settings $set "
         "-Description 'Мониторинг лимитов ZCode; при исчерпании 2 проверки подряд выключает ПК (единоразово)' -Force | Out-Null"
     )
-    r = subprocess.run(["pwsh", "-NoProfile", "-Command", pw], capture_output=True, text=True)
+    r = subprocess.run(["pwsh", "-NoProfile", "-Command", pw], capture_output=True, text=True, errors="replace")
     ok = r.returncode == 0
     # Сброс флага done — новый план активен, мониторинг снова нужен
     reset_watchdog_state()

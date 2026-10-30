@@ -120,7 +120,7 @@ def wd_reschedule():
 
 def cancel_shutdown():
     hr()
-    r = subprocess.run(["shutdown", "/a"], capture_output=True, text=True)
+    r = subprocess.run(["shutdown", "/a"], capture_output=True)
     if r.returncode == 0:
         print("Запланированное выключение отменено.")
     else:
